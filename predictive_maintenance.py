@@ -1,0 +1,108 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import classification_report, accuracy_score, roc_auc_score, precision_recall_curve, auc
+import joblib
+from skopt import BayesSearchCV
+from skopt.space import Real, Integer
+import shap
+
+# Load the dataset
+column_names = [
+    'id', 'cycle', 'setting1', 'setting2', 'setting3', 
+    's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10', 
+    's11', 's12', 's13', 's14', 's15', 's16', 's17', 's18', 's19', 
+    's20', 's21'
+]
+train_data = pd.read_csv('data/train_FD001.txt', sep=' ', header=None, names=column_names)
+train_data.dropna(axis=1, how='all', inplace=True)  # Drop empty columns
+
+# Calculate RUL (Remaining Useful Life)
+train_data['RUL'] = train_data.groupby('id')['cycle'].transform("max") - train_data['cycle']
+
+# Create binary labels using the 80th percentile as the threshold
+threshold = train_data['RUL'].quantile(0.80)
+train_data['label'] = train_data['RUL'].apply(lambda x: 1 if x <= threshold else 0)
+
+# Feature Engineering: Add rolling averages and rate of change
+train_data['s1_rolling_avg'] = train_data.groupby('id')['s1'].transform(lambda x: x.rolling(window=5).mean())
+train_data['s2_rate_of_change'] = train_data.groupby('id')['s2'].diff().fillna(0)
+
+# Fill missing values in engineered features
+train_data['s1_rolling_avg'] = train_data['s1_rolling_avg'].fillna(train_data['s1'])
+train_data['s2_rate_of_change'] = train_data['s2_rate_of_change'].fillna(0)
+
+# Drop unnecessary columns
+train_data.drop(['id', 'cycle', 'RUL'], axis=1, inplace=True)
+
+# Check for missing values
+print("Missing Values in Dataset:")
+print(train_data.isnull().sum())
+
+# Split the data into features (X) and target (y)
+X = train_data.drop('label', axis=1)
+y = train_data['label']
+
+# Split into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Create a pipeline with imputation, scaling, SMOTE, and XGBoost
+pipeline = ImbPipeline([
+    ('imputer', SimpleImputer(strategy='mean')),
+    ('scaler', StandardScaler()),
+    ('smote', SMOTE(random_state=42)),
+    ('xgb', XGBClassifier(random_state=42, scale_pos_weight=len(y_train[y_train == 0]) / len(y_train[y_train == 1])))
+])
+
+# Hyperparameter tuning with BayesSearchCV
+param_grid = {
+    'xgb__n_estimators': Integer(100, 500),
+    'xgb__max_depth': Integer(3, 10),
+    'xgb__learning_rate': Real(0.01, 0.2, 'log-uniform'),
+    'xgb__subsample': Real(0.6, 1.0),
+    'xgb__colsample_bytree': Real(0.6, 1.0)
+}
+
+search = BayesSearchCV(
+    pipeline,
+    param_grid,
+    n_iter=20,
+    scoring='f1',
+    cv=3,
+    random_state=42,
+    n_jobs=-1
+)
+
+# Fit the model
+search.fit(X_train, y_train)
+
+# Best model
+best_model = search.best_estimator_
+
+# Evaluate the model
+y_pred = best_model.predict(X_test)
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+print("Accuracy:", accuracy_score(y_test, y_pred))
+
+# Evaluate ROC-AUC
+y_pred_proba = best_model.predict_proba(X_test)[:, 1]
+roc_auc = roc_auc_score(y_test, y_pred_proba)
+print(f"ROC-AUC Score: {roc_auc:.4f}")
+
+# Evaluate Precision-Recall Curve
+precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
+pr_auc = auc(recall, precision)
+print(f"Precision-Recall AUC: {pr_auc:.4f}")
+
+# Save the model
+joblib.dump(best_model, 'models/predictive_maintenance_model.pkl')
+
+# Save the feature names
+joblib.dump(X_train.columns.tolist(), 'models/feature_names.pkl')
+
+print("Model and feature names saved successfully!")
