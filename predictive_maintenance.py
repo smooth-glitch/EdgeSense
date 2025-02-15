@@ -1,108 +1,131 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from xgboost import XGBClassifier
-from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import classification_report, accuracy_score, roc_auc_score, precision_recall_curve, auc
+import numpy as np
+import logging
+import time
 import joblib
+
+from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import classification_report, accuracy_score
+from imblearn.over_sampling import SMOTE
+from xgboost import XGBClassifier
 from skopt import BayesSearchCV
-from skopt.space import Real, Integer
-import shap
 
-# Load the dataset
-column_names = [
-    'id', 'cycle', 'setting1', 'setting2', 'setting3', 
-    's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10', 
-    's11', 's12', 's13', 's14', 's15', 's16', 's17', 's18', 's19', 
-    's20', 's21'
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# Start timing
+start_time = time.time()
+
+# Load dataset
+COLUMN_NAMES = [
+    "id", "cycle", "setting1", "setting2", "setting3",
+    "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10",
+    "s11", "s12", "s13", "s14", "s15", "s16", "s17", "s18", "s19",
+    "s20", "s21",
 ]
-train_data = pd.read_csv('data/train_FD001.txt', sep=' ', header=None, names=column_names)
-train_data.dropna(axis=1, how='all', inplace=True)  # Drop empty columns
 
-# Calculate RUL (Remaining Useful Life)
-train_data['RUL'] = train_data.groupby('id')['cycle'].transform("max") - train_data['cycle']
+train_data = pd.read_csv(
+    "train_FD001.txt", sep=" ", header=None, names=COLUMN_NAMES, engine="python"
+)
+train_data.dropna(axis=1, how="all", inplace=True)  # Drop empty columns
 
-# Create binary labels using the 80th percentile as the threshold
-threshold = train_data['RUL'].quantile(0.80)
-train_data['label'] = train_data['RUL'].apply(lambda x: 1 if x <= threshold else 0)
+# Compute Remaining Useful Life (RUL)
+train_data["RUL"] = (
+    train_data.groupby("id")["cycle"].transform("last") - train_data["cycle"]
+)
 
-# Feature Engineering: Add rolling averages and rate of change
-train_data['s1_rolling_avg'] = train_data.groupby('id')['s1'].transform(lambda x: x.rolling(window=5).mean())
-train_data['s2_rate_of_change'] = train_data.groupby('id')['s2'].diff().fillna(0)
+# Create binary labels using the 90th percentile as threshold
+threshold = np.percentile(train_data["RUL"], 10)
+train_data["label"] = (train_data["RUL"] <= threshold).astype(int)
 
-# Fill missing values in engineered features
-train_data['s1_rolling_avg'] = train_data['s1_rolling_avg'].fillna(train_data['s1'])
-train_data['s2_rate_of_change'] = train_data['s2_rate_of_change'].fillna(0)
+# Feature Engineering
+SENSOR_COLS = [col for col in train_data.columns if col.startswith("s")]
+
+for col in SENSOR_COLS:
+    train_data[f"{col}_rolling_mean"] = (
+        train_data.groupby("id")[col]
+        .rolling(window=5, min_periods=1)
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
+    train_data[f"{col}_rolling_std"] = (
+        train_data.groupby("id")[col]
+        .rolling(window=5, min_periods=1)
+        .std()
+        .reset_index(level=0, drop=True)
+    )
+    train_data[f"{col}_rate_of_change"] = train_data[col].diff().fillna(0)
 
 # Drop unnecessary columns
-train_data.drop(['id', 'cycle', 'RUL'], axis=1, inplace=True)
+train_data.drop(["id", "cycle", "RUL"], axis=1, inplace=True)
 
-# Check for missing values
-print("Missing Values in Dataset:")
-print(train_data.isnull().sum())
+# Handle missing values (Zero-filling instead of backfilling)
+train_data.fillna(0, inplace=True)
 
-# Split the data into features (X) and target (y)
-X = train_data.drop('label', axis=1)
-y = train_data['label']
+# Split the data into features and target
+X = train_data.drop("label", axis=1)
+y = train_data["label"]
 
 # Split into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
 
-# Create a pipeline with imputation, scaling, SMOTE, and XGBoost
-pipeline = ImbPipeline([
-    ('imputer', SimpleImputer(strategy='mean')),
-    ('scaler', StandardScaler()),
-    ('smote', SMOTE(random_state=42)),
-    ('xgb', XGBClassifier(random_state=42, scale_pos_weight=len(y_train[y_train == 0]) / len(y_train[y_train == 1])))
-])
+# Apply SMOTE only on training data
+smote = SMOTE(sampling_strategy=0.6, k_neighbors=3, random_state=42)
+X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
 
-# Hyperparameter tuning with BayesSearchCV
-param_grid = {
-    'xgb__n_estimators': Integer(100, 500),
-    'xgb__max_depth': Integer(3, 10),
-    'xgb__learning_rate': Real(0.01, 0.2, 'log-uniform'),
-    'xgb__subsample': Real(0.6, 1.0),
-    'xgb__colsample_bytree': Real(0.6, 1.0)
+# Define XGBoost classifier with GPU support
+xgb = XGBClassifier(
+    objective="binary:logistic",
+    eval_metric="logloss",
+    use_label_encoder=False,
+    random_state=42,
+    tree_method="gpu_hist",  # Enables GPU acceleration if available
+)
+
+# Hyperparameter tuning using Bayesian Optimization
+param_space = {
+    "n_estimators": (200, 600),  # Increased range for better tuning
+    "max_depth": (3, 12),
+    "learning_rate": (0.01, 0.3),
+    "subsample": (0.5, 1.0),
+    "colsample_bytree": (0.5, 1.0),
 }
 
 search = BayesSearchCV(
-    pipeline,
-    param_grid,
-    n_iter=20,
-    scoring='f1',
+    xgb,
+    param_space,
+    n_iter=30,  # Increased iterations for better tuning
+    scoring="f1",
     cv=3,
     random_state=42,
-    n_jobs=-1
+    n_jobs=-1,
 )
 
-# Fit the model
-search.fit(X_train, y_train)
+# Train the best model with early stopping
+search.fit(X_train_smote, y_train_smote)
 
-# Best model
+# Get best model
 best_model = search.best_estimator_
 
-# Evaluate the model
+# Evaluate model
 y_pred = best_model.predict(X_test)
-print("Classification Report:")
-print(classification_report(y_test, y_pred))
-print("Accuracy:", accuracy_score(y_test, y_pred))
+accuracy = accuracy_score(y_test, y_pred)
 
-# Evaluate ROC-AUC
-y_pred_proba = best_model.predict_proba(X_test)[:, 1]
-roc_auc = roc_auc_score(y_test, y_pred_proba)
-print(f"ROC-AUC Score: {roc_auc:.4f}")
+logging.info("Model Evaluation Completed.")
+logging.info(f"Best Hyperparameters: {search.best_params_}")
+logging.info(f"Accuracy: {accuracy:.4f}")
+logging.info("\n" + classification_report(y_test, y_pred))
 
-# Evaluate Precision-Recall Curve
-precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
-pr_auc = auc(recall, precision)
-print(f"Precision-Recall AUC: {pr_auc:.4f}")
+# Save the trained model and feature names
+joblib.dump(best_model, "predictive_maintenance_model.pkl")
+joblib.dump(X_train.columns.tolist(), "feature_names.pkl")
 
-# Save the model
-joblib.dump(best_model, 'models/predictive_maintenance_model.pkl')
-
-# Save the feature names
-joblib.dump(X_train.columns.tolist(), 'models/feature_names.pkl')
-
-print("Model and feature names saved successfully!")
+# Log execution time
+end_time = time.time()
+execution_time = end_time - start_time
+logging.info(f"Model training and tuning completed in {execution_time:.2f} seconds.")
