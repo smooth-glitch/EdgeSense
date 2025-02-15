@@ -93,13 +93,13 @@ Dataset Source: NASA Prognostics Data Repository
 
 
 ### 📊 App Screenshots
-![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/project_structure.png)
+![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/app_sc.png)
 
 ### 🖥️ Main Interface
 ![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/app-interface.png)
 
 ### 📈 Feature Importance
-![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/feature importance.png)
+![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/feature_importance.png)
 
 ### 🤝 Contribution
     If you'd like to contribute to this project, please follow these steps:
