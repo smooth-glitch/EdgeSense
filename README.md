@@ -60,18 +60,8 @@ Deployment: Building a user-friendly Streamlit app for real-time predictions.
     - Day 7: Final testing and deployment.
 
 ## 🗂 Project Structure
-The project folder structure is as follows:
+![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/project_structure.png)
 
-iot-predictive-maintenance/
-├── data/                   # Dataset and preprocessed files
-│   └── train_FD001.txt     # Raw sensor data
-├── models/                 # Saved machine learning models
-│   └── predictive_maintenance_model.pkl
-├── styles/                 # External CSS files
-│   └── styles.css
-├── app.py                  # Streamlit app script
-├── requirements.txt        # Python dependencies
-└── README.md               # Project documentation
 
 ## ⚙️ Setup Instructions
 To set up this project on your local system, follow these steps:
@@ -103,11 +93,13 @@ Dataset Source: NASA Prognostics Data Repository
 
 
 ### 📊 App Screenshots
+![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/app_sc.png)
 
 ### 🖥️ Main Interface
+![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/app-interface.png)
 
 ### 📈 Feature Importance
-
+![Diagram](https://github.com/smooth-glitch/Edgesense/blob/main/Images/feature_importance.png)
 
 ### 🤝 Contribution
     If you'd like to contribute to this project, please follow these steps:
