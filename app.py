@@ -13,11 +13,11 @@ def load_css(file_name):
 
 
 # Load the CSS file
-load_css("styles.css")
+load_css("styles/styles.css")
 
 # Load the model and feature names
-model = joblib.load("predictive_maintenance_model.pkl")
-feature_names = joblib.load("feature_names.pkl")
+model = joblib.load("models/predictive_maintenance_model.pkl")
+feature_names = joblib.load("models/feature_names.pkl")
 
 # Title and description
 st.title("EDGE SENSE")

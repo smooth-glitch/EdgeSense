@@ -5,16 +5,13 @@ import time
 import joblib
 
 from sklearn.model_selection import train_test_split
-from sklearn.impute import SimpleImputer
 from sklearn.metrics import classification_report, accuracy_score
 from imblearn.over_sampling import SMOTE
 from xgboost import XGBClassifier
 from skopt import BayesSearchCV
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Start timing
 start_time = time.time()
@@ -28,16 +25,14 @@ COLUMN_NAMES = [
 ]
 
 train_data = pd.read_csv(
-    "train_FD001.txt", sep=" ", header=None, names=COLUMN_NAMES, engine="python"
+    "data/train_FD001.txt", sep=" ", header=None, names=COLUMN_NAMES, engine="python"
 )
 train_data.dropna(axis=1, how="all", inplace=True)  # Drop empty columns
 
 # Compute Remaining Useful Life (RUL)
-train_data["RUL"] = (
-    train_data.groupby("id")["cycle"].transform("last") - train_data["cycle"]
-)
+train_data["RUL"] = train_data.groupby("id")["cycle"].transform("last") - train_data["cycle"]
 
-# Create binary labels using the 90th percentile as threshold
+# Create binary labels using the 10th percentile as threshold
 threshold = np.percentile(train_data["RUL"], 10)
 train_data["label"] = (train_data["RUL"] <= threshold).astype(int)
 
@@ -46,16 +41,10 @@ SENSOR_COLS = [col for col in train_data.columns if col.startswith("s")]
 
 for col in SENSOR_COLS:
     train_data[f"{col}_rolling_mean"] = (
-        train_data.groupby("id")[col]
-        .rolling(window=5, min_periods=1)
-        .mean()
-        .reset_index(level=0, drop=True)
+        train_data.groupby("id")[col].rolling(window=5, min_periods=1).mean().reset_index(level=0, drop=True)
     )
     train_data[f"{col}_rolling_std"] = (
-        train_data.groupby("id")[col]
-        .rolling(window=5, min_periods=1)
-        .std()
-        .reset_index(level=0, drop=True)
+        train_data.groupby("id")[col].rolling(window=5, min_periods=1).std().reset_index(level=0, drop=True)
     )
     train_data[f"{col}_rate_of_change"] = train_data[col].diff().fillna(0)
 
@@ -70,21 +59,23 @@ X = train_data.drop("label", axis=1)
 y = train_data["label"]
 
 # Split into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, stratify=y, random_state=42
-)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
 # Apply SMOTE only on training data
 smote = SMOTE(sampling_strategy=0.6, k_neighbors=3, random_state=42)
 X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
 
-# Define XGBoost classifier with GPU support
+
+xgb_params = {"tree_method": "hist"}  # Use CPU fallback
+logging.info("Falling back to CPU.")
+
+# Define XGBoost classifier
 xgb = XGBClassifier(
     objective="binary:logistic",
     eval_metric="logloss",
-    use_label_encoder=False,
     random_state=42,
-    tree_method="gpu_hist",  # Enables GPU acceleration if available
+    n_jobs=-1,
+    **xgb_params
 )
 
 # Hyperparameter tuning using Bayesian Optimization
@@ -103,7 +94,7 @@ search = BayesSearchCV(
     scoring="f1",
     cv=3,
     random_state=42,
-    n_jobs=-1,
+    n_jobs=4,
 )
 
 # Train the best model with early stopping
@@ -122,8 +113,8 @@ logging.info(f"Accuracy: {accuracy:.4f}")
 logging.info("\n" + classification_report(y_test, y_pred))
 
 # Save the trained model and feature names
-joblib.dump(best_model, "predictive_maintenance_model.pkl")
-joblib.dump(X_train.columns.tolist(), "feature_names.pkl")
+joblib.dump(best_model, "models/predictive_maintenance_model.pkl")
+joblib.dump(X_train.columns.tolist(), "models/feature_names.pkl")
 
 # Log execution time
 end_time = time.time()
