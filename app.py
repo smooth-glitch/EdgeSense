@@ -15,9 +15,13 @@ def load_css(file_name):
 # Load the CSS file
 load_css("styles/styles.css")
 
-# Load the model and feature names
-model = joblib.load("models/predictive_maintenance_model.pkl")
-feature_names = joblib.load("models/feature_names.pkl")
+# Load the model and feature names with error handling
+try:
+    model = joblib.load("models/predictive_maintenance_model.pkl")
+    feature_names = joblib.load("models/feature_names.pkl")
+except FileNotFoundError as e:
+    st.error(f"Error loading model or feature names: {e}")
+    st.stop()
 
 # Title and description
 st.title("EDGE SENSE")
@@ -47,7 +51,7 @@ for i, feature in enumerate(feature_names):
             label=f"{feature}",
             value=0.0,
             format="%.6f",
-            key=feature,
+            key=f"{feature}_{i}",  # Unique key to avoid conflicts
             help=f"Enter the value for {feature}"
         )
 
@@ -59,13 +63,26 @@ if st.button("Predict", key="predict_button"):
         # Convert input data to DataFrame and ensure correct column order
         input_df = pd.DataFrame([input_data])[feature_names]
 
+        # Ensure all values are in float32 and check dtype
+        input_df = input_df.astype('float32')
+        st.write(f"Data Types after conversion:\n{input_df.dtypes}")
+
+        # Convert to NumPy array for prediction (in case DataFrame is still problematic)
+        input_array = input_df.values.astype('float32')
+
         # Make predictions
-        prediction = model.predict(input_df)
-        prediction_proba = model.predict_proba(input_df)
+        prediction = model.predict(input_array)
+        try:
+            prediction_proba = model.predict_proba(input_array)  # Ensure the model supports predict_proba
+        except AttributeError:
+            prediction_proba = None
 
         # Display prediction result
         st.success(f"### Prediction: **{'Failure' if prediction[0] == 1 else 'No Failure'}**")
-        st.write(f"**Confidence:** {max(prediction_proba[0]):.2%}")
+        if prediction_proba is not None:
+            st.write(f"**Confidence:** {max(prediction_proba[0]):.2%}")
+        else:
+            st.write("**Confidence:** Not available")
 
         # Display feature importance
         st.write("### Feature Importance")
@@ -87,13 +104,14 @@ if st.button("Predict", key="predict_button"):
         st.pyplot(fig)
 
         # Additional visualizations
-        st.write("### Confidence Score Distribution")
-        fig, ax = plt.subplots(figsize=(8, 5))
-        sns.histplot(prediction_proba[0], bins=10, kde=True, ax=ax, color="dodgerblue")
-        ax.set_title("Prediction Confidence Distribution", fontsize=14, fontweight="bold")
-        ax.set_xlabel("Confidence Score", fontsize=12)
-        ax.set_ylabel("Density", fontsize=12)
-        st.pyplot(fig)
+        if prediction_proba is not None:
+            st.write("### Confidence Score Distribution")
+            fig, ax = plt.subplots(figsize=(8, 5))
+            sns.histplot(prediction_proba[0], bins=10, kde=True, ax=ax, color="dodgerblue")
+            ax.set_title("Prediction Confidence Distribution", fontsize=14, fontweight="bold")
+            ax.set_xlabel("Confidence Score", fontsize=12)
+            ax.set_ylabel("Density", fontsize=12)
+            st.pyplot(fig)
 
 # Footer with GitHub repo link
 st.markdown("---")
