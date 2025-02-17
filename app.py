@@ -8,20 +8,31 @@ import seaborn as sns
 
 def load_css(file_name):
     """Load external CSS file."""
-    with open(file_name) as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    try:
+        with open(file_name) as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.warning(f"CSS file '{file_name}' not found. Default styles will be used.")
 
 
 # Load the CSS file
 load_css("styles/styles.css")
 
 # Load the model and feature names with error handling
-try:
-    model = joblib.load("models/predictive_maintenance_model.pkl")
-    feature_names = joblib.load("models/feature_names.pkl")
-except FileNotFoundError as e:
-    st.error(f"Error loading model or feature names: {e}")
-    st.stop()
+@st.cache_resource
+def load_model_and_features():
+    """Load the model and feature names."""
+    try:
+        model = joblib.load("models/predictive_maintenance_model.pkl")
+        feature_names = joblib.load("models/feature_names.pkl")
+        return model, feature_names
+    except FileNotFoundError as e:
+        st.error(f"Error loading model or feature names: {e}")
+        st.stop()
+
+
+# Load model and features
+model, feature_names = load_model_and_features()
 
 # Title and description
 st.title("EDGE SENSE")
@@ -65,7 +76,6 @@ if st.button("Predict", key="predict_button"):
 
         # Ensure all values are in float32 and check dtype
         input_df = input_df.astype('float32')
-        st.write(f"Data Types after conversion:\n{input_df.dtypes}")
 
         # Convert to NumPy array for prediction (in case DataFrame is still problematic)
         input_array = input_df.values.astype('float32')
