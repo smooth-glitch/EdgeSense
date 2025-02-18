@@ -8,6 +8,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import classification_report, accuracy_score, f1_score, confusion_matrix
 from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
+from imblearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 from skopt import BayesSearchCV
 
@@ -50,17 +52,19 @@ y = train_data["label"]
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
 # Apply SMOTE to balance classes
-smote = SMOTE(sampling_strategy=0.5, k_neighbors=5, random_state=42)
-X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
+over = SMOTE(sampling_strategy=0.5, random_state=42)
+under = RandomUnderSampler(sampling_strategy=0.8, random_state=42)
+pipeline = Pipeline(steps=[('over', over), ('under', under)])
+X_train_res, y_train_res = pipeline.fit_resample(X_train, y_train)
 
 # Convert to NumPy arrays for XGBoost compatibility
-X_train_smote = X_train_smote.values
-y_train_smote = y_train_smote.values
+X_train_res = X_train_res.values
+y_train_res = y_train_res.values
 X_test_np = X_test.values
 y_test_np = y_test.values
 
 # Calculate class weights for XGBoost
-scale_pos_weight = len(y_train[y_train == 0]) / len(y_train[y_train == 1])
+scale_pos_weight = len(y_train[y_train == 0]) / len(y_train[y_train == 1]) * 3
 
 # Define XGBoost classifier with class weights
 xgb = XGBClassifier(
@@ -86,15 +90,15 @@ param_space = {
 search = BayesSearchCV(
     xgb,
     param_space,
-    n_iter=15,  # Increased iterations for better tuning
+    n_iter=30,  # Increased iterations for better tuning
     scoring="f1",
-    cv=3,
+    cv=5,
     random_state=42,
     n_jobs=-1,  # Parallel processing
 )
 
 # Train the best model
-search.fit(X_train_smote, y_train_smote, eval_set=[(X_test_np, y_test_np)], verbose=False)
+search.fit(X_train_res, y_train_res, eval_set=[(X_test_np, y_test_np)], verbose=False)
 
 # Get best model
 best_model = search.best_estimator_
@@ -123,28 +127,36 @@ end_time = time.time()
 logging.info(f"Model training and tuning completed in {end_time - start_time:.2f} seconds.")
 
 # Function to handle input and prevent incorrect predictions on empty inputs
-def is_empty_input(data):
-    """Check if all input values are missing or zero."""
-    return data.isna().all().all() or (data == 0).all().all()
+def is_invalid_input(data):
+    """Check if input is entirely NaN, zero, or lacks variability."""
+    # If all values are NaN or zero (before imputation)
+    if data.isna().all().all() or (data == 0).all().all():
+        return True
+    
+    # Impute missing values
+    data_imputed = pd.DataFrame(imputer.transform(data), columns=FEATURE_COLS)
+
+    # Check if input data is too close to the mean (i.e., lacks variability)
+    mean_values = np.mean(X, axis=0)  # Get mean of training data
+    std_values = np.std(X, axis=0)    # Get standard deviation of training data
+
+    # If input is too close to mean (e.g., within 0.01 std deviation), it lacks useful info
+    if np.all(np.abs(data_imputed - mean_values) < (0.01 * std_values)):
+        return True
+    
+    return False
 
 def predict_failure(input_data):
     """
     Predict failure using the trained model.
-    If input is empty or contains only zeros, return 'Invalid input'.
+    If input is invalid (all NaNs, all zeros, or lacks variability), return 'Invalid input'.
     """
     input_df = pd.DataFrame([input_data], columns=FEATURE_COLS)
 
-    # Impute missing values
-    input_df = pd.DataFrame(imputer.transform(input_df), columns=FEATURE_COLS)
-
-    if is_empty_input(input_df):
-        logging.warning("Empty or all-zero input detected. Prediction not valid.")
+    if is_invalid_input(input_df):
+        logging.warning("Invalid or low-variability input detected. Prediction not valid.")
         return "Invalid input"
 
     # Convert input to NumPy array for prediction
     input_np = input_df.values
     return best_model.predict(input_np)[0]
-
-# Example test case
-sample_input = {col: np.nan for col in FEATURE_COLS}  # Simulating an empty input
-print(predict_failure(sample_input))

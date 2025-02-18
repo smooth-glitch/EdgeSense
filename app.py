@@ -81,11 +81,12 @@ if st.button("Predict", key="predict_button"):
         input_array = input_df.values.astype('float32')
 
         # Make predictions
-        prediction = model.predict(input_array)
         try:
-            prediction_proba = model.predict_proba(input_array)  # Ensure the model supports predict_proba
-        except AttributeError:
-            prediction_proba = None
+            prediction = model.predict(input_array)
+            prediction_proba = model.predict_proba(input_array) if hasattr(model, "predict_proba") else None
+        except Exception as e:
+            st.error(f"Error during prediction: {e}")
+            st.stop()
 
         # Display prediction result
         st.success(f"### Prediction: **{'Failure' if prediction[0] == 1 else 'No Failure'}**")
@@ -96,22 +97,25 @@ if st.button("Predict", key="predict_button"):
 
         # Display feature importance
         st.write("### Feature Importance")
-        importance_df = pd.DataFrame({
-            "Feature": feature_names,
-            "Importance": model.feature_importances_
-        }).sort_values(by="Importance", ascending=False)
+        if hasattr(model, "feature_importances_"):
+            importance_df = pd.DataFrame({
+                "Feature": feature_names,
+                "Importance": model.feature_importances_
+            }).sort_values(by="Importance", ascending=False)
 
-        # Plot feature importance
-        fig, ax = plt.subplots(figsize=(12, 8), dpi=200)
-        sns.set_style("darkgrid")
-        sns.barplot(x="Importance", y="Feature", data=importance_df, ax=ax, palette="viridis")
-        ax.set_title("Feature Importance", fontsize=16, fontweight="bold")
-        ax.set_xlabel("Importance", fontsize=14)
-        ax.set_ylabel("Feature", fontsize=14)
-        ax.tick_params(axis="both", labelsize=12)
-        ax.grid(axis="x", linestyle="--", alpha=0.6)
-        fig.tight_layout()
-        st.pyplot(fig)
+            # Plot feature importance
+            fig, ax = plt.subplots(figsize=(12, 8), dpi=200)
+            sns.set_style("darkgrid")
+            sns.barplot(x="Importance", y="Feature", data=importance_df, ax=ax, palette="viridis")
+            ax.set_title("Feature Importance", fontsize=16, fontweight="bold")
+            ax.set_xlabel("Importance", fontsize=14)
+            ax.set_ylabel("Feature", fontsize=14)
+            ax.tick_params(axis="both", labelsize=12)
+            ax.grid(axis="x", linestyle="--", alpha=0.6)
+            fig.tight_layout()
+            st.pyplot(fig)
+        else:
+            st.write("Feature importance is not available for this model.")
 
         # Additional visualizations
         if prediction_proba is not None:
