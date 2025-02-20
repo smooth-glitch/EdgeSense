@@ -3,7 +3,6 @@ import numpy as np
 import logging
 import time
 import joblib
-
 from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
@@ -54,11 +53,11 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratif
 logging.info(f"Original class distribution: {Counter(y_train)}")
 
 # Compute scale_pos_weight dynamically
-scale_pos_weight = Counter(y_train)[0] / Counter(y_train)[1]
+scale_pos_weight = 2 * Counter(y_train)[0] / Counter(y_train)[1]
 logging.info(f"Computed scale_pos_weight: {scale_pos_weight:.2f}")
 
 # Apply SMOTETomek for resampling
-over = SMOTETomek(sampling_strategy=0.8, random_state=42)
+over = SMOTETomek(sampling_strategy=1, random_state=42)
 X_train_res, y_train_res = over.fit_resample(X_train, y_train)
 logging.info(f"After SMOTETomek: {Counter(y_train_res)}")
 
@@ -71,18 +70,18 @@ y_test_np = y_test.values
 # Define XGBoost classifier with adjusted parameters
 xgb = XGBClassifier(
     objective="binary:logistic",
-    eval_metric="logloss",
+    eval_metric="auc",
     random_state=42,
     tree_method="hist",
     early_stopping_rounds=25,
-    scale_pos_weight=scale_pos_weight,
+    scale_pos_weight=10,
 )
 
 # Hyperparameter tuning using Bayesian Optimization
 param_space = {
     "n_estimators": (500, 1000),
-    "max_depth": (6, 20),
-    "learning_rate": (0.05, 0.2),
+    "max_depth": (10, 15),
+    "learning_rate": (0.01, 0.2),
     "subsample": (0.5, 1.0),
     "colsample_bytree": (0.6, 1.0),
     "gamma": (0.1, 5),
@@ -107,7 +106,7 @@ best_model = search.best_estimator_
 
 # Evaluate model
 y_pred_prob = best_model.predict_proba(X_test_np)[:, 1]  # Get the probability for class 1
-threshold = 0.3  # Adjust the threshold to focus on predicting the minority class more
+threshold = 0.25  # Adjust the threshold to focus on predicting the minority class more
 y_pred_adjusted = (y_pred_prob > threshold).astype(int)  # Apply the adjusted threshold
 
 # Log accuracy and other metrics
