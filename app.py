@@ -51,20 +51,26 @@ with st.sidebar:
 
 # Input fields for all features
 st.header("Input Sensor Data")
-st.write("Enter the sensor values below:")
+st.write("Enter the sensor values below. Disable sensors if you want the model to ignore them.")
 
 input_data = {}
+disabled_sensors = set()  # Track disabled sensors
 col1, col2 = st.columns(2)
 
 for i, feature in enumerate(feature_names):
     with col1 if i % 2 == 0 else col2:
-        input_data[feature] = st.number_input(
-            label=f"{feature}",
-            value=0.0,
-            format="%.6f",
-            key=f"{feature}_{i}",  # Unique key to avoid conflicts
-            help=f"Enter the value for {feature}"
-        )
+        disable_feature = st.checkbox(f"Disable {feature}", key=f"disable_{feature}_{i}")
+        if disable_feature:
+            disabled_sensors.add(feature)
+            input_data[feature] = None  # Placeholder value for disabled sensors
+        else:
+            input_data[feature] = st.number_input(
+                label=f"{feature}",
+                value=0.0,
+                format="%.6f",
+                key=f"{feature}_{i}",
+                help=f"Enter the value for {feature}"
+            )
 
 # Predict button
 if st.button("Predict", key="predict_button"):
@@ -74,10 +80,14 @@ if st.button("Predict", key="predict_button"):
         # Convert input data to DataFrame and ensure correct column order
         input_df = pd.DataFrame([input_data])[feature_names]
 
-        # Ensure all values are in float32 and check dtype
+        # Handle disabled sensors by replacing None with the mean (or zero as fallback)
+        for feature in disabled_sensors:
+            input_df[feature] = 0.0  # Replace with a neutral/default value
+
+        # Ensure all values are in float32
         input_df = input_df.astype('float32')
 
-        # Convert to NumPy array for prediction (in case DataFrame is still problematic)
+        # Convert to NumPy array for prediction
         input_array = input_df.values.astype('float32')
 
         # Make predictions
@@ -103,10 +113,15 @@ if st.button("Predict", key="predict_button"):
                 "Importance": model.feature_importances_
             }).sort_values(by="Importance", ascending=False)
 
+            # Highlight disabled sensors in gray
+            importance_df["Color"] = importance_df["Feature"].apply(
+                lambda x: "gray" if x in disabled_sensors else "viridis"
+            )
+
             # Plot feature importance
             fig, ax = plt.subplots(figsize=(12, 8), dpi=200)
             sns.set_style("darkgrid")
-            sns.barplot(x="Importance", y="Feature", data=importance_df, ax=ax, palette="viridis")
+            sns.barplot(x="Importance", y="Feature", data=importance_df, ax=ax, hue="Color", dodge=False, legend=False)
             ax.set_title("Feature Importance", fontsize=16, fontweight="bold")
             ax.set_xlabel("Importance", fontsize=14)
             ax.set_ylabel("Feature", fontsize=14)
