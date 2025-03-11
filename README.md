@@ -33,7 +33,7 @@ Deployment: Building a user-friendly Streamlit app for real-time predictions.
 
     - Optimized for performance and scalability.
 
-# 🔍 SMOTE (Synthetic Minority Over-sampling Technique)
+# 🔍 SMOTE-TOMEK (Synthetic Minority Over-sampling Technique)
     SMOTE is used to handle imbalanced datasets by generating synthetic samples of the minority class (equipment failure).
 
     Key Characteristics:
