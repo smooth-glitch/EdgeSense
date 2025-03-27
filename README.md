@@ -115,6 +115,3 @@ Dataset Source: NASA Prognostics Data Repository
     For any questions or feedback, feel free to reach out:
 
     Email: arjunsridhar445@gmail.com
-
-### ☕ Support Me
-    If you find this project useful, consider supporting me:
